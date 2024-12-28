@@ -16,7 +16,65 @@ def _canonicalizePath(path):
         # convert a unicode string to str will fail. Leave it alone in this case.
         return path
 
-def _playsoundWin(sound, block = True):
+class OsxNssSound:
+    def pause(self) -> bool: return False
+    def play(self) -> bool: return False
+    def resume(self) -> bool: return False
+    def stop(self) -> bool: return False
+
+    def duration(self) -> float: return 0.0
+    def volume(self) -> float: return 0.0
+    def currentTime(self) -> float: return 0.0
+    def loops(self) -> bool: return False
+    def isPlaying(self) -> bool: return False
+
+
+class PsInterface:
+    def __init__(self, client):
+        self.client: OsxNssSound | None = client
+
+    def set_client(self, client):
+        self.client = client
+
+    def pause(self) -> bool:
+        if self.client is None: return False
+        return self.client.pause()
+    def play(self) -> bool:
+        if self.client is None: return False
+        return self.client.play()
+    def resume(self) -> bool:
+        if self.client is None: return False
+        return self.client.resume()
+    def stop(self) -> bool:
+        if self.client is None: return False
+        return self.client.stop()
+
+    def duration(self) -> float:
+        if self.client is None: return 0.0
+        return self.client.duration()
+    def volume(self) -> float:
+        if self.client is None: return 0.0
+        return self.client.volume()
+    def set_volume(self, v: float):
+        if self.client is None: return 0.0
+        return self.client.setVolume_(min(1.0, max(0.0, v)))
+    def current_time(self) -> float:
+        if self.client is None: return 0.0
+        return self.client.currentTime()
+    def set_current_time(self, time_sec: float):
+        return self.client.setCurrentTime_(min(self.duration(), max(0.0, time_sec)))
+    def is_repeating(self) -> bool:
+        if self.client is None: return False
+        return self.client.loops()
+    def set_repeating(self, v: bool):
+        if self.client is None: return False
+        return self.client.setLoops_(v)
+    def is_playing(self) -> bool:
+        if self.client is None: return False
+        return self.client.isPlaying()
+
+
+def _playsoundWin(sound, block = True, play = True):
     '''
     Utilizes windll.winmm. Tested and known to work with MP3 and WAVE on
     Windows 7 with Python 2.7. Probably works with more file formats.
@@ -86,7 +144,7 @@ def _handlePathOSX(sound):
         return parts[0] + '://' + quote(parts[1].encode('utf-8')).replace(' ', '%20')
 
 
-def _playsoundOSX(sound, block = True):
+def _playsoundOSX(sound, block = True, play = True) -> OsxNssSound:
     '''
     Utilizes AppKit.NSSound. Tested and known to work with MP3 and WAVE on
     OS X 10.11 with Python 2.7. Probably works with anything QuickTime supports.
@@ -97,6 +155,9 @@ def _playsoundOSX(sound, block = True):
     http://stackoverflow.com/a/34568298/901641
 
     I never would have tried using AppKit.NSSound without seeing his code.
+
+    Additional reference to NSSound
+        https://developer.apple.com/documentation/appkit/nssound
     '''
     try:
         from AppKit import NSSound
@@ -114,19 +175,22 @@ def _playsoundOSX(sound, block = True):
         raise PlaysoundException('Cannot find a sound with filename: ' + sound)
 
     for i in range(5):
-        nssound = NSSound.alloc().initWithContentsOfURL_byReference_(url, True)
+        nssound: OsxNssSound = NSSound.alloc().initWithContentsOfURL_byReference_(url, True)
         if nssound:
             break
         else:
             logger.debug('Failed to load sound, although url was good... ' + sound)
     else:
         raise PlaysoundException('Could not load sound with filename, although URL was good... ' + sound)
-    nssound.play()
+    if play:
+        nssound.play()
 
     if block:
         sleep(nssound.duration())
+    return nssound
 
-def _playsoundNix(sound, block = True):
+
+def _playsoundNix(sound, block = True, play = True):
     """Play a sound using GStreamer.
 
     Inspired by this:
